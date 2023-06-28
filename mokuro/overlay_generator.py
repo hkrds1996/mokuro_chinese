@@ -13,6 +13,7 @@ from mokuro.env import ASSETS_PATH
 from mokuro.manga_page_ocr import MangaPageOcr
 from mokuro.utils import dump_json, load_json
 
+import time
 from googletrans import Translator
 
 SCRIPT_PATH = Path(__file__).parent / 'script.js'
@@ -287,7 +288,13 @@ class OverlayGenerator:
                             text(line)
                 with tag('div', klass='textBox translatorBox', style=box_style):
                     curr_line = "".join(result_blk['lines'])
-                    translated = translate_to_chinese(curr_line)
+                    while True:
+                        try:
+                            translated = translate_to_chinese(curr_line)
+                            break
+                        except Exception as e:
+                            time.sleep(2)
+                            continue
                     curr_index = 0
                     for line in result_blk['lines']:
                         with tag('p'):
