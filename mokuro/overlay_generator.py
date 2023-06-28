@@ -301,6 +301,9 @@ class OverlayGenerator:
                             if curr_index<len(translated):
                                 text(translated[curr_index:min(curr_index+len(line),len(translated))])
                                 curr_index= curr_index+len(line)
+                    if curr_index<len(translated):
+                        with tag('p'):
+                            text(translated[curr_index:len(translated)])
         html = doc.getvalue()
         return html
 
