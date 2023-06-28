@@ -29,9 +29,9 @@ class MangaPageOcr:
 
         logger.info('Initializing text detector')
         self.text_detector = TextDetector(model_path=cache.comic_text_detector, input_size=detector_input_size,
-                                          device='cpu',
+                                          device='cuda',
                                           act='leaky')
-        self.mocr = MangaOcr(pretrained_model_name_or_path, force_cpu)
+        self.mocr = MangaOcr(pretrained_model_name_or_path,force_cpu)
 
     def __call__(self, img_path):
         img = imread(img_path)
@@ -65,7 +65,7 @@ class MangaPageOcr:
                     if blk.vertical:
                         line_crop = cv2.rotate(line_crop, cv2.ROTATE_90_CLOCKWISE)
                     line_text += self.mocr(Image.fromarray(line_crop))
-
+                
                 result_blk['lines_coords'].append(line.tolist())
                 result_blk['lines'].append(line_text)
 

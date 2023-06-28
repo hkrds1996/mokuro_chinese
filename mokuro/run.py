@@ -33,7 +33,7 @@ def run(*paths,
 
     if not disable_confirmation:
         inp = input('\nEach of the paths above will be treated as one volume. Continue? [yes/no]\n')
-        if inp.lower() not in ('y', 'yes'):
+        if (len(inp)!=0 & (inp.lower() in ('n', 'no'))):
             return
 
     ovg = OverlayGenerator(pretrained_model_name_or_path=pretrained_model_name_or_path, force_cpu=force_cpu)

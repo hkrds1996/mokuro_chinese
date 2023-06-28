@@ -20,6 +20,7 @@ let defaultState = {
     eInkMode: false,
     defaultZoomMode: "fit to screen",
     toggleOCRTextBoxes: false,
+    toggleTranslatorBoxes:false,
     backgroundColor: '#C4C3D0',
 };
 
@@ -52,6 +53,7 @@ function updateUI() {
     document.getElementById('menuEInkMode').checked = state.eInkMode;
     document.getElementById('menuDefaultZoom').value = state.defaultZoomMode;
     document.getElementById('menuToggleOCRTextBoxes').checked = state.toggleOCRTextBoxes;
+    document.getElementById('menuToggleTranslatorBoxes').checked = state.toggleTranslatorBoxes;
     document.getElementById('menuBackgroundColor').value = state.backgroundColor;
 }
 
@@ -113,6 +115,11 @@ function initTextBoxes() {
 // Add event listeners for toggling ocr text boxes with the toggleOCRTextBoxes option.
     let textBoxes = document.querySelectorAll('.textBox');
     for (let i = 0; i < textBoxes.length; i++) {
+        if(textBoxes[i].classList.contains('translatorBox')){
+            textBoxes[i].style.display = 'none';
+        }else{
+            textBoxes[i].style.display = 'block';
+        }
         textBoxes[i].addEventListener('click', function (e) {
             if (state.toggleOCRTextBoxes) {
                 this.classList.add('hovered');
@@ -138,7 +145,7 @@ function initTextBoxes() {
     });
 }
 
-function updateProperties() {
+function updateProperties(flag = false) {
     if (state.textBoxBorders) {
         r.style.setProperty('--textBoxBorderHoverColor', 'rgba(237, 28, 36, 0.3)');
     } else {
@@ -169,6 +176,16 @@ function updateProperties() {
 
     if (state.backgroundColor) {
         r.style.setProperty('--colorBackground', state.backgroundColor)
+    }
+    if(flag){
+        let textBoxes = document.querySelectorAll('.textBox');
+        for (let i = 0; i < textBoxes.length; i++) {
+            if(state.toggleTranslatorBoxes ^ textBoxes[i].classList.contains('translatorBox')){
+                textBoxes[i].style.display = "none";
+            }else{
+                textBoxes[i].style.display = "block";
+            }
+        }
     }
 }
 
@@ -226,6 +243,12 @@ document.getElementById('menuToggleOCRTextBoxes').addEventListener('click', func
     state.toggleOCRTextBoxes = document.getElementById("menuToggleOCRTextBoxes").checked;
     saveState();
     updateProperties();
+}, false);
+
+document.getElementById('menuToggleTranslatorBoxes').addEventListener('click', function () {
+    state.toggleTranslatorBoxes = document.getElementById("menuToggleTranslatorBoxes").checked;
+    saveState();
+    updateProperties(true);
 }, false);
 
 document.getElementById('menuBackgroundColor').addEventListener(

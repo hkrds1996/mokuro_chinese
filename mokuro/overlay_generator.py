@@ -13,6 +13,8 @@ from mokuro.env import ASSETS_PATH
 from mokuro.manga_page_ocr import MangaPageOcr
 from mokuro.utils import dump_json, load_json
 
+from googletrans import Translator
+
 SCRIPT_PATH = Path(__file__).parent / 'script.js'
 STYLES_PATH = Path(__file__).parent / 'styles.css'
 PANZOOM_PATH = ASSETS_PATH / 'panzoom.min.js'
@@ -40,6 +42,10 @@ ABOUT_DEMO = ABOUT + """
 <p>うちの猫’ず日記 &copy; がぁさん</p>
 """
 
+def translate_to_chinese(text):
+    translator = Translator()
+    translation = translator.translate(text, dest='zh-cn')
+    return translation.text
 
 class OverlayGenerator:
     def __init__(self,
@@ -163,8 +169,8 @@ class OverlayGenerator:
                             doc.asis('showAboutOnStart=true;')
 
         html = doc.getvalue()
-        return html
-
+        return html    
+       
     def top_menu(self, doc, tag, text, num_pages):
         with tag('a', id='showMenuA', href='#'):
             pass
@@ -256,10 +262,10 @@ class OverlayGenerator:
                               ['auto', 9, 10, 11, 12, 14, 16, 18, 20, 24, 32, 40, 48, 60])
                 option_toggle('menuEInkMode', 'e-ink mode ')
                 option_toggle('menuToggleOCRTextBoxes', 'toggle OCR text boxes on click')
+                option_toggle('menuToggleTranslatorBoxes', 'toggle translator boxes on click')
                 option_color('menuBackgroundColor', 'background color', '#C4C3D0')
                 option_click('menuReset', 'reset settings')
                 option_click('menuAbout', 'about/help')
-
     def get_page_html(self, result, img_path):
         doc, tag, text = Doc().tagtext()
 
@@ -279,7 +285,15 @@ class OverlayGenerator:
                     for line in result_blk['lines']:
                         with tag('p'):
                             text(line)
-
+                with tag('div', klass='textBox translatorBox', style=box_style):
+                    curr_line = "".join(result_blk['lines'])
+                    translated = translate_to_chinese(curr_line)
+                    curr_index = 0
+                    for line in result_blk['lines']:
+                        with tag('p'):
+                            if curr_index<len(translated):
+                                text(translated[curr_index:min(curr_index+len(line),len(translated))])
+                                curr_index= curr_index+len(line)
         html = doc.getvalue()
         return html
 
@@ -313,7 +327,7 @@ class OverlayGenerator:
             box_style['writing-mode'] = 'vertical-rl'
 
         box_style = ' '.join(f'{k}:{v};' for k, v in box_style.items())
-        return box_style
+        return box_style            
 
     @staticmethod
     def get_container_style(result, img_path):
@@ -329,3 +343,4 @@ class OverlayGenerator:
     @staticmethod
     def get_icon(name):
         return (ICONS_PATH / name).with_suffix('.svg').read_text()
+    
