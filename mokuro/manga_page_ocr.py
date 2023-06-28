@@ -29,7 +29,7 @@ class MangaPageOcr:
 
         logger.info('Initializing text detector')
         self.text_detector = TextDetector(model_path=cache.comic_text_detector, input_size=detector_input_size,
-                                          device='cuda',
+                                          device='cpu',
                                           act='leaky')
         self.mocr = MangaOcr(pretrained_model_name_or_path,force_cpu)
 
