@@ -5,7 +5,6 @@ Read Japanese manga with selectable text inside a browser.
 This project is a personal branch from  [https://github.com/kha-white/mokuro](https://github.com/kha-white/mokuro "mokuro"). Mokuro has already given good function. However, for learning Japanese by using Manga, if a translator is combined in html, it will be much better. Then, I added a translator function to the Mokuro project.
 
 # Display
-
 https://github.com/hkrds1996/mokuro_chinese/assets/16051414/9b618241-23ca-49ac-b812-196bea5b58b1
 
 
@@ -22,6 +21,9 @@ Using way is the same as Mokuro project
 
 # Contact
 For any inquiries, please feel free to contact me at fasklas68@gmail.com
+
+#BV
+https://www.bilibili.com/video/BV1vm4y1a7o3
 
 # Acknowledgments
 - https://github.com/kha-white/mokuro
