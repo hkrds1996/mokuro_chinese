@@ -17,8 +17,15 @@ python setup.py install
 ```
 
 # Using
-Using way is the same as Mokuro project
+Using way is the same as the Mokuro project
+If want to change translated language, change dest's value
 
+```python
+def translate_to_chinese(text):
+    translator = Translator()
+    translation = translator.translate(text, dest='zh-cn')
+    return translation.text
+```
 # Contact
 For any inquiries, please feel free to contact me at fasklas68@gmail.com
 
