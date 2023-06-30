@@ -18,7 +18,8 @@ python setup.py install
 
 # Using
 Using way is the same as the Mokuro project
-If want to change translated language, change dest's value
+
+If want to change translated language, go to the overlay_generator.py file and change dest's value in the translate_to_chinese function  
 
 ```python
 def translate_to_chinese(text):
