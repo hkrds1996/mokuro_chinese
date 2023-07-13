@@ -6,22 +6,31 @@ from loguru import logger
 
 global folder_path
 global force_cpu
-folder_path = ""
+folder_path = []
 def select_folder():
     global folder_path
-    folder_path = filedialog.askdirectory()
-    folder_path_label.config(text=folder_path)
+    folder_path = []
+    while True:
+        directory = filedialog.askdirectory()
+        if not directory:
+            break
+        folder_path.append(directory)
+    folder_path_label.delete("1.0", tk.END)
+    for directory in folder_path:
+        folder_path_label.insert(tk.END, directory+"\n")
+        folder_path_label.see(tk.END)
 
 def perform_function():
     try:
-        if folder_path=="":
+        if len(folder_path)==0:
             raise ValueError("An error occurred!")
-        run(folder_path,force_cpu = force_cpu,disable_confirmation=True)
+        for directory in folder_path:
+            run(directory,force_cpu = force_cpu,disable_confirmation=True)
     except Exception as e:
         messagebox.showerror("Error", str(e))
 def toggle_button():
     global force_cpu
-    if toggle_var.get() == 0:
+    if toggle_var.get() == 1:
         force_cpu = False
         toggle_label.config(text="Using GPU")
     else:
@@ -53,15 +62,14 @@ folder_btn = tk.Button(root, text="Select Image Folder", command=select_folder)
 folder_btn.pack(pady=10)
 
 # Directory Label
-folder_path_label = tk.Label(text="")
+folder_path_label = tk.Text(root)
 folder_path_label.pack(pady=10)
-folder_path_label.config(text=folder_path)
 
 # GPU Toggle
 toggle_var = tk.IntVar()
 toggle_button = tk.Checkbutton(root, text="GPU/CPU Toggle", variable=toggle_var, command=toggle_button)
 toggle_button.pack(pady=10)
-toggle_label = tk.Label(root, text="Using GPU")
+toggle_label = tk.Label(root, text="Using CPU")
 toggle_label.pack(pady=5)
 force_cpu = True
 
