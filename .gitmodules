@@ -1,3 +1,0 @@
-[submodule "manga_ocr_overlay/comic-text-detector"]
-	path = comic_text_detector
-	url = ../comic-text-detector.git
