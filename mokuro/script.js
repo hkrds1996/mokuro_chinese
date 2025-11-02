@@ -22,6 +22,8 @@ let defaultState = {
     toggleOCRTextBoxes: false,
     toggleTranslatorBoxes:false,
     backgroundColor: '#C4C3D0',
+    sourceLanguage: 'ja',
+    targetLanguage: 'zh',
 };
 
 let state = JSON.parse(JSON.stringify(defaultState));
@@ -55,6 +57,9 @@ function updateUI() {
     document.getElementById('menuToggleOCRTextBoxes').checked = state.toggleOCRTextBoxes;
     document.getElementById('menuToggleTranslatorBoxes').checked = state.toggleTranslatorBoxes;
     document.getElementById('menuBackgroundColor').value = state.backgroundColor;
+    document.getElementById('menuSourceLanguage').value = state.sourceLanguage;
+    document.getElementById('menuTargetLanguage').value = state.targetLanguage;
+    updateCurrentLanguagePair();
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -98,6 +103,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     updatePage(state.page_idx);
     initTextBoxes();
+
+    // Initialize translation after all scripts are loaded
+    window.addEventListener('load', async () => {
+        await translatePage();
+    });
 
     if (showAboutOnStart) {
         document.getElementById('popupAbout').style.display = 'block';
@@ -249,6 +259,9 @@ document.getElementById('menuToggleTranslatorBoxes').addEventListener('click', f
     state.toggleTranslatorBoxes = document.getElementById("menuToggleTranslatorBoxes").checked;
     saveState();
     updateProperties(true);
+    if (state.toggleTranslatorBoxes) {
+        translatePage();
+    }
 }, false);
 
 document.getElementById('menuBackgroundColor').addEventListener(
@@ -296,6 +309,33 @@ document.getElementById('menuDefaultZoom').addEventListener('change', (e) => {
     state.defaultZoomMode = e.target.value;
     saveState();
 });
+
+document.getElementById('menuSourceLanguage').addEventListener('change', (e) => {
+    state.sourceLanguage = e.target.value;
+    saveState();
+    updateCurrentLanguagePair();
+    if (state.toggleTranslatorBoxes) {
+        translatePage();
+    }
+});
+
+document.getElementById('menuTargetLanguage').addEventListener('change', (e) => {
+    state.targetLanguage = e.target.value;
+    saveState();
+    updateCurrentLanguagePair();
+    if (state.toggleTranslatorBoxes) {
+        translatePage();
+    }
+});
+
+function updateCurrentLanguagePair() {
+    const newPair = `${state.sourceLanguage}-${state.targetLanguage}`;
+    if (languageMap[newPair]) {
+        currentLanguagePair = newPair;
+    } else {
+        console.warn(`Unsupported language pair: ${newPair}, keeping current: ${currentLanguagePair}`);
+    }
+}
 
 
 document.getElementById('pageIdxInput').addEventListener('change', (e) => {
@@ -507,6 +547,11 @@ function updatePage(new_page_idx) {
     if (state.eInkMode) {
         eInkRefresh();
     }
+
+    // Load translations for the new page(s) if translation is enabled
+    if (state.toggleTranslatorBoxes) {
+        translatePage();
+    }
 }
 
 function firstPage() {
@@ -578,4 +623,187 @@ function eInkRefresh() {
         pc.classList.remove("inverted");
         document.body.style.backgroundColor = r.style.getPropertyValue("--colorBackground");
     }, 300);
+}
+
+// Language support map
+const languageMap = {
+    'ja-zh': 'Xenova/opus-mt-ja-zh',
+    'ja-en': 'Xenova/opus-mt-ja-en',
+    'zh-en': 'Xenova/opus-mt-zh-en',
+    'en-ja': 'Xenova/opus-mt-en-ja',
+    'en-zh': 'Xenova/opus-mt-en-zh',
+    'zh-ja': 'Xenova/opus-mt-zh-ja'
+};
+
+const languageNames = {
+    'ja': 'Japanese',
+    'zh': 'Chinese',
+    'en': 'English'
+};
+
+// Translation using Transformers.js
+let translators = {}; // Cache for different language pairs
+let currentLanguagePair = 'ja-zh';
+let transformersModule = null;
+
+async function loadTransformers() {
+    if (transformersModule === null) {
+        try {
+            transformersModule = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.5.2/dist/transformers.min.js');
+        } catch (error) {
+            console.error('Failed to load Transformers.js:', error);
+            throw error;
+        }
+    }
+    return transformersModule;
+}
+
+async function initTranslator(langPair = currentLanguagePair) {
+    const transformers = await loadTransformers();
+
+    if (!translators[langPair]) {
+        const modelName = languageMap[langPair];
+        if (!modelName) {
+            throw new Error(`Unsupported language pair: ${langPair}`);
+        }
+        translators[langPair] = await transformers.pipeline('translation', modelName);
+    }
+    return translators[langPair];
+}
+
+async function translateText(text, langPair = currentLanguagePair) {
+    const translator = await initTranslator(langPair);
+    const result = await translator(text);
+    return result[0].translation_text;
+}
+
+async function translatePage() {
+    const translatorBoxes = document.querySelectorAll('.translatorBox');
+    const pageData = getCurrentPageData();
+
+    // Try to load cached translations first
+    const cachedTranslations = await loadCachedTranslations(pageData);
+    if (cachedTranslations) {
+        applyCachedTranslations(translatorBoxes, cachedTranslations);
+        return;
+    }
+
+    // If no cache, translate and save
+    const translations = [];
+    for (const box of translatorBoxes) {
+        const originalText = box.getAttribute('data-original');
+        if (originalText && box.textContent.trim() === originalText.trim()) {
+            try {
+                const translated = await translateText(originalText, currentLanguagePair);
+                box.innerHTML = translated.split('\n').map(line => `<p>${line}</p>`).join('');
+                translations.push({
+                    original: originalText,
+                    translated: translated
+                });
+            } catch (e) {
+                console.error('Translation failed:', e);
+                translations.push({
+                    original: originalText,
+                    translated: originalText // fallback to original
+                });
+            }
+        } else {
+            translations.push({
+                original: originalText || box.textContent.trim(),
+                translated: box.textContent.trim()
+            });
+        }
+    }
+
+    // Save translations to cache
+    if (translations.length > 0) {
+        await saveTranslationsToCache(pageData, translations);
+    }
+}
+
+function getCurrentPageData() {
+    // Get current page information for caching
+    const currentPages = [];
+    if (state.page_idx >= 0) {
+        currentPages.push(state.page_idx);
+    }
+    if (state.page2_idx >= 0) {
+        currentPages.push(state.page2_idx);
+    }
+
+    // Get volume name from URL or title
+    const volumeName = window.location.pathname.split('/').pop() || 'unknown';
+
+    return {
+        volume: volumeName,
+        pages: currentPages,
+        languagePair: currentLanguagePair
+    };
+}
+
+async function loadCachedTranslations(pageData) {
+    try {
+        // Try to load from multiple possible cache locations
+        for (const pageIdx of pageData.pages) {
+            const cachePath = `_ocr/${pageData.volume}/${pageIdx}_${pageData.languagePair}.json`;
+            try {
+                const response = await fetch(cachePath);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.translations || data.blocks;
+                }
+            } catch (e) {
+                // Continue to next cache location
+            }
+        }
+    } catch (e) {
+        console.log('No cached translations found');
+    }
+    return null;
+}
+
+function applyCachedTranslations(translatorBoxes, cachedTranslations) {
+    translatorBoxes.forEach((box, index) => {
+        if (index < cachedTranslations.length && cachedTranslations[index].translated) {
+            const translated = cachedTranslations[index].translated;
+            box.innerHTML = translated.split('\n').map(line => `<p>${line}</p>`).join('');
+        }
+    });
+}
+
+async function saveTranslationsToCache(pageData, translations) {
+    try {
+        // Save to the first page's cache file
+        if (pageData.pages.length > 0) {
+            const cachePath = `_ocr/${pageData.volume}/${pageData.pages[0]}_${pageData.languagePair}.json`;
+            const cacheData = {
+                volume: pageData.volume,
+                page: pageData.pages[0],
+                languagePair: pageData.languagePair,
+                timestamp: new Date().toISOString(),
+                translations: translations
+            };
+
+            // Try to save via fetch (if server supports it) or localStorage as fallback
+            try {
+                const response = await fetch(cachePath, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(cacheData, null, 2)
+                });
+                if (!response.ok) {
+                    throw new Error('Server does not support saving');
+                }
+            } catch (e) {
+                // Fallback: save to localStorage with a key
+                const cacheKey = `mokuro_translation_${pageData.volume}_${pageData.pages[0]}_${pageData.languagePair}`;
+                localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+                console.log('Saved translation to localStorage');
+            }
+        }
+    } catch (e) {
+        console.error('Failed to save translations:', e);
+    }
 }

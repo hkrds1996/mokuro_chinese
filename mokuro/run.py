@@ -11,6 +11,7 @@ def run(*paths,
         parent_dir=None,
         pretrained_model_name_or_path='kha-white/manga-ocr-base',
         force_cpu=False,
+        ocr_engine='manga-ocr',
         as_one_file=True,
         disable_confirmation=False,
         ):
@@ -36,19 +37,22 @@ def run(*paths,
         if (len(inp)!=0 & (inp.lower() in ('n', 'no'))):
             return
 
-    ovg = OverlayGenerator(pretrained_model_name_or_path=pretrained_model_name_or_path, force_cpu=force_cpu)
+    ovg = OverlayGenerator(pretrained_model_name_or_path=pretrained_model_name_or_path,
+                          force_cpu=force_cpu, ocr_engine=ocr_engine)
 
     num_sucessful = 0
     for i, path in enumerate(paths):
         logger.info(f'Processing {i + 1}/{len(paths)}: {path}')
         try:
             ovg.process_dir(path, as_one_file=as_one_file)
+            logger.info(f'Completed processing: {path}')
         except Exception:
             logger.exception(f'Error while processing {path}')
         else:
             num_sucessful += 1
 
     logger.info(f'Processed successfully: {num_sucessful}/{len(paths)}')
+    logger.info('All processing complete!')
 
 
 if __name__ == '__main__':

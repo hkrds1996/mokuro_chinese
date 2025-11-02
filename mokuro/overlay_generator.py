@@ -13,8 +13,7 @@ from mokuro.env import ASSETS_PATH
 from mokuro.manga_page_ocr import MangaPageOcr
 from mokuro.utils import dump_json, load_json
 
-import time
-from googletrans import Translator
+
 
 SCRIPT_PATH = Path(__file__).parent / 'script.js'
 STYLES_PATH = Path(__file__).parent / 'styles.css'
@@ -43,24 +42,24 @@ ABOUT_DEMO = ABOUT + """
 <p>うちの猫’ず日記 &copy; がぁさん</p>
 """
 
-def translate_to_chinese(text):
-    translator = Translator()
-    translation = translator.translate(text, dest='zh-cn')
-    return translation.text
+
 
 class OverlayGenerator:
     def __init__(self,
-                 pretrained_model_name_or_path='kha-white/manga-ocr-base',
+                 pretrained_model_name_or_path='kha-white/manga-ocr-large',
                  force_cpu=False,
+                 ocr_engine='manga-ocr',
                  **kwargs):
         self.pretrained_model_name_or_path = pretrained_model_name_or_path
         self.force_cpu = force_cpu
+        self.ocr_engine = ocr_engine
         self.kwargs = kwargs
         self.mpocr = None
 
     def init_models(self):
         if self.mpocr is None:
-            self.mpocr = MangaPageOcr(self.pretrained_model_name_or_path, self.force_cpu, **self.kwargs)
+            self.mpocr = MangaPageOcr(self.pretrained_model_name_or_path, self.force_cpu,
+                                     ocr_engine=self.ocr_engine, **self.kwargs)
 
     def process_dir(self, path, as_one_file=True, is_demo=False):
         path = Path(path).expanduser().absolute()
@@ -86,12 +85,15 @@ class OverlayGenerator:
         for img_path in tqdm(img_paths, desc='Processing pages...'):
             json_path = (results_dir / img_path.relative_to(path)).with_suffix('.json')
             if json_path.is_file():
+                logger.info(f'Skipping {img_path.name} (already processed)')
                 result = load_json(json_path)
             else:
+                logger.info(f'Processing {img_path.name}...')
                 self.init_models()
                 result = self.mpocr(img_path)
                 json_path.parent.mkdir(parents=True, exist_ok=True)
                 dump_json(result, json_path)
+                logger.info(f'Saved OCR results for {img_path.name}')
 
             page_html = self.get_page_html(result, img_path.relative_to(out_dir))
             page_htmls.append(page_html)
@@ -156,13 +158,13 @@ class OverlayGenerator:
                     with tag('script'):
                         doc.asis(PANZOOM_PATH.read_text())
 
-                    with tag('script'):
+                    with tag('script', defer=True):
                         doc.asis(SCRIPT_PATH.read_text())
                 else:
                     with tag('script', src='panzoom.min.js'):
                         pass
 
-                    with tag('script', src='script.js'):
+                    with tag('script', src='script.js', defer=True):
                         pass
 
                     if is_demo:
@@ -262,6 +264,10 @@ class OverlayGenerator:
                 option_select('menuFontSize', 'font size: ',
                               ['auto', 9, 10, 11, 12, 14, 16, 18, 20, 24, 32, 40, 48, 60])
                 option_toggle('menuEInkMode', 'e-ink mode ')
+                option_select('menuSourceLanguage', 'source language: ',
+                              ['ja', 'zh', 'en'])
+                option_select('menuTargetLanguage', 'target language: ',
+                              ['zh', 'ja', 'en'])
                 option_toggle('menuToggleOCRTextBoxes', 'toggle OCR text boxes on click')
                 option_toggle('menuToggleTranslatorBoxes', 'toggle translator boxes on click')
                 option_color('menuBackgroundColor', 'background color', '#C4C3D0')
@@ -286,24 +292,10 @@ class OverlayGenerator:
                     for line in result_blk['lines']:
                         with tag('p'):
                             text(line)
-                with tag('div', klass='textBox translatorBox', style=box_style):
-                    curr_line = "".join(result_blk['lines'])
-                    while True:
-                        try:
-                            translated = translate_to_chinese(curr_line)
-                            break
-                        except Exception as e:
-                            time.sleep(2)
-                            continue
-                    curr_index = 0
+                with tag('div', klass='textBox translatorBox', style=box_style, **{'data-original': "".join(result_blk['lines'])}):
                     for line in result_blk['lines']:
                         with tag('p'):
-                            if curr_index<len(translated):
-                                text(translated[curr_index:min(curr_index+len(line),len(translated))])
-                                curr_index= curr_index+len(line)
-                    if curr_index<len(translated):
-                        with tag('p'):
-                            text(translated[curr_index:len(translated)])
+                            text(line)
         html = doc.getvalue()
         return html
 
@@ -353,4 +345,3 @@ class OverlayGenerator:
     @staticmethod
     def get_icon(name):
         return (ICONS_PATH / name).with_suffix('.svg').read_text()
-    
