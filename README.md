@@ -24,6 +24,13 @@ A native Python desktop application that provides GPU-accelerated translation fo
 python run_gui.py
 ```
 
+### Supported Image Formats
+
+The GUI supports the following image formats:
+- **JPG/JPEG**: Standard JPEG images
+- **PNG**: Portable Network Graphics
+- **WebP**: Modern web image format with better compression
+
 ### GUI Interface Overview
 
 - **File Menu**: Open manga volumes (directories containing image files)

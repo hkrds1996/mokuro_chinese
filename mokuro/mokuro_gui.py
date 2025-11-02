@@ -857,7 +857,7 @@ class MokuroGUI(QMainWindow):
 
         # Find image files
         self.image_paths = []
-        for ext in ['.jpg', '.jpeg', '.png']:
+        for ext in ['.jpg', '.jpeg', '.png', '.webp']:
             self.image_paths.extend(self.current_volume_path.glob(f'**/*{ext}'))
 
         # Remove duplicates (in case of case-insensitive file systems)
