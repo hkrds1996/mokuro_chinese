@@ -3,6 +3,9 @@ import numpy as np
 from PIL import Image
 from loguru import logger
 from scipy.signal.windows import gaussian
+import torch
+import os
+from transformers import AutoModel, AutoTokenizer
 
 from comic_text_detector.inference import TextDetector
 from mokuro import __version__
@@ -31,6 +34,14 @@ except ImportError:
     TROCR_AVAILABLE = False
     logger.warning("trocr not available - import failed")
 
+try:
+    from transformers import AutoModel
+    from transformers import AutoProcessor, AutoModelForVision2Seq
+    DEEPSEEK_OCR_AVAILABLE = True
+except ImportError:
+    DEEPSEEK_OCR_AVAILABLE = False
+    logger.warning("deepseek-ocr not available - import failed")
+
 
 class MangaPageOcr:
     def __init__(self,
@@ -55,7 +66,7 @@ class MangaPageOcr:
                                           device='cuda' if not force_cpu else 'cpu',
                                           act='leaky')
 
-        # Automatic fallback chain: manga-ocr -> easyocr -> trocr
+        # Automatic fallback chain: manga-ocr -> easyocr -> trocr -> deepseek-ocr
         if ocr_engine == 'manga-ocr':
             if not MANGA_OCR_AVAILABLE:
                 logger.warning("MangaOCR not available, trying EasyOCR...")
@@ -88,15 +99,34 @@ class MangaPageOcr:
 
         if ocr_engine == 'trocr':
             if not TROCR_AVAILABLE:
-                raise RuntimeError("No OCR engines available! Please install at least one of: manga-ocr, easyocr, or transformers")
-            logger.info('Initializing TrOCR (Transformer-based OCR)')
+                logger.warning("TrOCR not available, trying DeepSeek-OCR...")
+                ocr_engine = 'deepseek-ocr'
+                self.ocr_engine = ocr_engine
+            else:
+                logger.info('Initializing TrOCR (Transformer-based OCR)')
+                try:
+                    device = 'cpu' if force_cpu else 'cuda'
+                    self.processor = TrOCRProcessor.from_pretrained('microsoft/trocr-base-printed')
+                    self.ocr = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-base-printed')
+                    self.ocr.to(device)
+                except Exception as e:
+                    logger.warning(f"TrOCR failed: {e}")
+                    logger.warning("Trying DeepSeek-OCR...")
+                    ocr_engine = 'deepseek-ocr'
+                    self.ocr_engine = ocr_engine
+
+        if ocr_engine == 'deepseek-ocr':
+            if not DEEPSEEK_OCR_AVAILABLE:
+                raise RuntimeError("No OCR engines available! Please install at least one of: manga-ocr, easyocr, transformers, or deepseek-ocr support")
+            logger.info('Initializing DeepSeek-OCR')
             try:
                 device = 'cpu' if force_cpu else 'cuda'
-                self.processor = TrOCRProcessor.from_pretrained('microsoft/trocr-base-printed')
-                self.ocr = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-base-printed')
-                self.ocr.to(device)
+                os.environ["CUDA_VISIBLE_DEVICES"] = '0' if device == 'cuda' else ''
+                self.tokenizer = AutoTokenizer.from_pretrained("deepseek-ai/deepseek-ocr", trust_remote_code=True)
+                self.ocr = AutoModel.from_pretrained("deepseek-ai/deepseek-ocr", trust_remote_code=True, use_safetensors=True)
+                self.ocr = self.ocr.eval().to(device).to(torch.bfloat16 if device == 'cuda' else torch.float32)
             except Exception as e:
-                raise RuntimeError(f"TrOCR failed to initialize: {e}. No working OCR engines available.")
+                raise RuntimeError(f"DeepSeek-OCR failed to initialize: {e}. No working OCR engines available.")
 
         logger.info(f"Using OCR engine: {self.ocr_engine}")
 
@@ -110,9 +140,9 @@ class MangaPageOcr:
         for blk_idx, blk in enumerate(blk_list):
 
             result_blk = {
-                'box': list(blk.xyxy),
-                'vertical': blk.vertical,
-                'font_size': blk.font_size,
+                'box': [int(x) for x in blk.xyxy],  # Convert numpy int32 to Python int
+                'vertical': bool(blk.vertical),     # Convert numpy bool to Python bool
+                'font_size': int(blk.font_size),    # Convert numpy int to Python int
                 'lines_coords': [],
                 'lines': []
             }
@@ -132,35 +162,104 @@ class MangaPageOcr:
                     if blk.vertical:
                         line_crop = cv2.rotate(line_crop, cv2.ROTATE_90_CLOCKWISE)
 
-                    if self.ocr_engine == 'manga-ocr':
-                        line_text += self.ocr(Image.fromarray(line_crop))
-                    elif self.ocr_engine == 'easyocr':
-                        # EasyOCR expects RGB, convert from BGR if needed
-                        if line_crop.shape[2] == 3:  # BGR to RGB
-                            line_crop_rgb = cv2.cvtColor(line_crop, cv2.COLOR_BGR2RGB)
-                        else:
-                            line_crop_rgb = line_crop
-                        results = self.ocr.readtext(line_crop_rgb, detail=0)
-                        line_text += ' '.join(results) if results else ''
-                    elif self.ocr_engine == 'trocr':
-                        # TrOCR expects RGB PIL Image
-                        if line_crop.shape[2] == 3:  # BGR to RGB
-                            line_crop_rgb = cv2.cvtColor(line_crop, cv2.COLOR_BGR2RGB)
-                        else:
-                            line_crop_rgb = line_crop
-                        pil_image = Image.fromarray(line_crop_rgb)
+                    logger.debug(f"Processing line crop with shape: {line_crop.shape}, engine: {self.ocr_engine}")
+                    logger.debug(f"Line text before OCR: '{line_text}' (length: {len(line_text)})")
+                    try:
+                        if self.ocr_engine == 'manga-ocr':
+                            line_text += self.ocr(Image.fromarray(line_crop))
+                        elif self.ocr_engine == 'easyocr':
+                            # EasyOCR expects RGB, convert from BGR if needed
+                            if line_crop.shape[2] == 3:  # BGR to RGB
+                                line_crop_rgb = cv2.cvtColor(line_crop, cv2.COLOR_BGR2RGB)
+                            else:
+                                line_crop_rgb = line_crop
+                            results = self.ocr.readtext(line_crop_rgb, detail=0)
+                            line_text += ' '.join(results) if results else ''
+                        elif self.ocr_engine == 'trocr':
+                            # TrOCR expects RGB PIL Image
+                            if line_crop.shape[2] == 3:  # BGR to RGB
+                                line_crop_rgb = cv2.cvtColor(line_crop, cv2.COLOR_BGR2RGB)
+                            else:
+                                line_crop_rgb = line_crop
+                            pil_image = Image.fromarray(line_crop_rgb)
 
-                        # Process image and generate text
-                        pixel_values = self.processor(pil_image, return_tensors="pt").pixel_values
-                        device = next(self.ocr.parameters()).device
-                        pixel_values = pixel_values.to(device)
+                            # Process image and generate text
+                            pixel_values = self.processor(pil_image, return_tensors="pt").pixel_values
+                            device = next(self.ocr.parameters()).device
+                            pixel_values = pixel_values.to(device)
 
-                        generated_ids = self.ocr.generate(pixel_values, max_length=50, num_beams=4)
-                        generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                        line_text += generated_text
+                            generated_ids = self.ocr.generate(pixel_values, max_length=50, num_beams=4)
+                            generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                            line_text += generated_text
+                            logger.debug(f"TrOCR extracted text: '{generated_text}'")
+                        elif self.ocr_engine == 'deepseek-ocr':
+                            # DeepSeek-OCR uses custom infer method
+                            if line_crop.shape[2] == 3:  # BGR to RGB
+                                line_crop_rgb = cv2.cvtColor(line_crop, cv2.COLOR_BGR2RGB)
+                            else:
+                                line_crop_rgb = line_crop
+                            pil_image = Image.fromarray(line_crop_rgb)
+
+                            # Save temp image for DeepSeek-OCR
+                            import tempfile
+                            import os
+                            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+                                pil_image.save(tmp_file.name, 'JPEG')
+                                temp_image_path = tmp_file.name
+
+                            try:
+                                # Use DeepSeek-OCR infer method
+                                prompt = "<image>\n<|grounding|>Convert the document to markdown."
+                                with tempfile.TemporaryDirectory() as tmp_dir:
+                                    ocr_result = self.ocr.infer(
+                                        self.tokenizer,
+                                        prompt=prompt,
+                                        image_file=temp_image_path,
+                                        output_path=tmp_dir,
+                                        base_size=1024,
+                                        image_size=640,
+                                        crop_mode=True,
+                                        save_results=False,
+                                        test_compress=False
+                                    )
+                                    # Debug: Print the DeepSeek result structure
+                                    logger.info(f"DeepSeek OCR result type: {type(ocr_result)}")
+                                    logger.info(f"DeepSeek OCR result keys: {list(ocr_result.keys()) if isinstance(ocr_result, dict) else 'Not a dict'}")
+                                    if isinstance(ocr_result, dict):
+                                        for key, value in ocr_result.items():
+                                            logger.info(f"DeepSeek result[{key}]: type={type(value)}, value={repr(value)[:200]}...")
+
+                                    # Extract text from result - ensure we only get string data
+                                    if ocr_result:
+                                        if 'markdown' in ocr_result:
+                                            text_content = ocr_result['markdown']
+                                            if isinstance(text_content, str):
+                                                line_text += text_content.strip()
+                                            else:
+                                                # Convert numpy arrays or other types to string
+                                                line_text += str(text_content).strip()
+                                        elif 'text' in ocr_result:
+                                            text_content = ocr_result['text']
+                                            if isinstance(text_content, str):
+                                                line_text += text_content.strip()
+                                            else:
+                                                # Convert numpy arrays or other types to string
+                                                line_text += str(text_content).strip()
+                            finally:
+                                # Clean up temp file
+                                try:
+                                    os.unlink(temp_image_path)
+                                except:
+                                    pass
+                    except Exception as e:
+                        logger.error(f"OCR failed for line crop (engine: {self.ocr_engine}): {e}")
+                        logger.error(f"Line crop shape: {line_crop.shape if 'line_crop' in locals() else 'unknown'}")
+                        # Continue with empty text for this chunk
+                        continue
                 
-                result_blk['lines_coords'].append(line.tolist())
+                result_blk['lines_coords'].append([[int(coord) for coord in point] for point in line])
                 result_blk['lines'].append(line_text)
+                logger.debug(f"Final line text for line {line_idx}: '{line_text}'")
 
             result['blocks'].append(result_blk)
 

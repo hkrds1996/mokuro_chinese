@@ -41,41 +41,92 @@ class TranslationWorker(QThread):
         self.target_lang = target_lang
         self.translator = None
 
+
+
     def run(self):
         try:
             # Initialize translator
-            self.progress.emit(10, "Loading translation model...")
+            self.progress.emit(10, "Connecting to Ollama...")
 
-            # Language pair mapping using NLLB models (GPU-friendly and publicly available)
-            # NLLB requires specific language codes
-            nllb_lang_codes = {
-                'ja': 'jpn_Jpan',  # Japanese
-                'zh': 'zho_Hans',  # Simplified Chinese
-                'en': 'eng_Latn',  # English
+            # Use Ollama for translation (much simpler and more reliable)
+            import requests
+            import json
+
+            # Language names for Ollama prompts
+            lang_names = {
+                'ja': 'Japanese',
+                'zh': 'Chinese',
+                'en': 'English'
             }
 
-            src_lang_code = nllb_lang_codes.get(self.source_lang)
-            tgt_lang_code = nllb_lang_codes.get(self.target_lang)
-
-            if not src_lang_code or not tgt_lang_code:
-                raise ValueError(f"Unsupported language: {self.source_lang} or {self.target_lang}")
-
-            device = 0 if torch.cuda.is_available() else -1
-            self.translator = pipeline('translation', model='facebook/nllb-200-distilled-1.3B',
-                                     src_lang=src_lang_code, tgt_lang=tgt_lang_code, device=device)
-
-            self.progress.emit(30, "Translating text...")
+            src_lang_name = lang_names.get(self.source_lang, 'Japanese')
+            tgt_lang_name = lang_names.get(self.target_lang, 'Chinese')
 
             translated_blocks = []
             total_blocks = len(self.text_blocks)
 
+            self.progress.emit(30, "Translating text...")
+
             for i, block in enumerate(self.text_blocks):
-                original_text = '\n'.join(block['lines'])
+                original_text = ' '.join(block['lines'])
+
                 if original_text.strip():
-                    # Translate the text
-                    result = self.translator(original_text, max_length=512)
-                    translated_text = result[0]['translation_text']
-                    translated_lines = translated_text.split('\n')
+                    try:
+                        # Create translation prompt
+                        prompt = f"Translate the following {src_lang_name} text to {tgt_lang_name}. Only provide the translation, no explanations:\n\n{original_text}"
+
+                        # Send to Ollama API
+                        response = requests.post(
+                            'http://localhost:11434/api/generate',
+                            json={
+                                'model': 'deepseek-r1:8b',  # Use the model you have installed
+                                'prompt': prompt,
+                                'stream': False,
+                                'options': {
+                                    'temperature': 0.1,
+                                    'num_predict': 512
+                                }
+                            },
+                            timeout=60  # Longer timeout for long texts
+                        )
+
+                        if response.status_code == 200:
+                            result = response.json()
+                            translation = result.get('response', '').strip()
+                        else:
+                            translation = f"[API Error: {response.status_code}]"
+
+                    except requests.exceptions.RequestException as e:
+                        translation = f"[Network Error: {e}]"
+                    except Exception as e:
+                        translation = f"[Translation Error: {e}]"
+
+                    # Break translation into same number of lines as original block
+                    original_line_count = len(block['lines'])
+                    if original_line_count <= 1:
+                        # Single line block - use translation as-is
+                        translated_lines = [translation.strip()]
+                    else:
+                        # Multi-line block - break translation into equal parts
+                        words = translation.strip().split()
+                        if not words:
+                            translated_lines = [''] * original_line_count
+                        else:
+                            # Calculate words per line
+                            total_words = len(words)
+                            words_per_line = max(1, total_words // original_line_count)
+                            extra_words = total_words % original_line_count
+
+                            translated_lines = []
+                            word_idx = 0
+
+                            for i in range(original_line_count):
+                                # Some lines get an extra word to distribute evenly
+                                line_word_count = words_per_line + (1 if i < extra_words else 0)
+                                line_words = words[word_idx:word_idx + line_word_count]
+                                line_text = ' '.join(line_words)
+                                translated_lines.append(line_text)
+                                word_idx += line_word_count
                 else:
                     translated_lines = block['lines']
 
@@ -103,15 +154,18 @@ class BatchTranslationWorker(QThread):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, image_paths: List[Path], ocr_results: Dict, source_lang: str, target_lang: str, volume_path: Path):
+    def __init__(self, image_paths: List[Path], ocr_results: Dict, source_lang: str, target_lang: str, volume_path: Path, force_retry: bool = False):
         super().__init__()
         self.image_paths = image_paths
         self.ocr_results = ocr_results
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.volume_path = volume_path
+        self.force_retry = force_retry
         self.translator = None
         self.is_cancelled = False
+
+
 
     def cancel(self):
         """Cancel the batch translation"""
@@ -120,25 +174,21 @@ class BatchTranslationWorker(QThread):
     def run(self):
         try:
             # Initialize translator
-            self.overall_progress.emit(5, "Loading translation model...")
+            self.overall_progress.emit(5, "Connecting to Ollama...")
 
-            # Language pair mapping using NLLB models (GPU-friendly and publicly available)
-            # NLLB requires specific language codes
-            nllb_lang_codes = {
-                'ja': 'jpn_Jpan',  # Japanese
-                'zh': 'zho_Hans',  # Simplified Chinese
-                'en': 'eng_Latn',  # English
+            # Use Ollama for translation (much simpler and more reliable)
+            import requests
+            import json
+
+            # Language names for Ollama prompts
+            lang_names = {
+                'ja': 'Japanese',
+                'zh': 'Chinese',
+                'en': 'English'
             }
 
-            src_lang_code = nllb_lang_codes.get(self.source_lang)
-            tgt_lang_code = nllb_lang_codes.get(self.target_lang)
-
-            if not src_lang_code or not tgt_lang_code:
-                raise ValueError(f"Unsupported language: {self.source_lang} or {self.target_lang}")
-
-            device = 0 if torch.cuda.is_available() else -1
-            self.translator = pipeline('translation', model='facebook/nllb-200-distilled-1.3B',
-                                     src_lang=src_lang_code, tgt_lang=tgt_lang_code, device=device)
+            src_lang_name = lang_names.get(self.source_lang, 'Japanese')
+            tgt_lang_name = lang_names.get(self.target_lang, 'Chinese')
 
             self.overall_progress.emit(10, "Starting batch translation...")
 
@@ -153,8 +203,8 @@ class BatchTranslationWorker(QThread):
                 results_dir = self.volume_path.parent / '_ocr' / self.volume_path.name
                 translation_json_path = results_dir / f"{image_path.relative_to(self.volume_path).with_suffix('')}_{self.source_lang}_{self.target_lang}.json"
 
-                if translation_json_path.exists():
-                    # Skip already translated pages
+                if translation_json_path.exists() and not self.force_retry:
+                    # Skip already translated pages (unless force retry is enabled)
                     self.page_progress.emit(page_idx, f"Skipping page {page_idx + 1}/{total_pages} (already translated)...", image_path)
                     completed_pages += 1
                     overall_progress = 10 + int(90 * completed_pages / total_pages)
@@ -174,7 +224,6 @@ class BatchTranslationWorker(QThread):
                             ocr_data = load_json(ocr_json_path)
                             self.ocr_results[image_path] = ocr_data
                         except Exception as e:
-                            print(f"Failed to load OCR data for {image_path}: {e}")
                             completed_pages += 1
                             continue
                     else:
@@ -192,12 +241,64 @@ class BatchTranslationWorker(QThread):
                     if self.is_cancelled:
                         break
 
-                    original_text = '\n'.join(block['lines'])
+                    original_text = ' '.join(block['lines'])
                     if original_text.strip():
-                        # Translate the text
-                        result = self.translator(original_text, max_length=512)
-                        translated_text = result[0]['translation_text']
-                        translated_lines = translated_text.split('\n')
+                        try:
+                            # Create translation prompt
+                            prompt = f"Translate the following {src_lang_name} text to {tgt_lang_name}. Only provide the translation, no explanations:\n\n{original_text}"
+
+                            # Send to Ollama API
+                            response = requests.post(
+                                'http://localhost:11434/api/generate',
+                                json={
+                                    'model': 'deepseek-r1:8b',  # Use the model you have installed
+                                    'prompt': prompt,
+                                    'stream': False,
+                                    'options': {
+                                        'temperature': 0.1,
+                                        'num_predict': 512
+                                    }
+                                },
+                                timeout=60  # Longer timeout for long texts
+                            )
+
+                            if response.status_code == 200:
+                                result = response.json()
+                                translation = result.get('response', '').strip()
+                            else:
+                                translation = f"[API Error: {response.status_code}]"
+
+                        except requests.exceptions.RequestException as e:
+                            translation = f"[Network Error: {e}]"
+                        except Exception as e:
+                            translation = f"[Translation Error: {e}]"
+
+                        # Break translation into same number of lines as original block
+                        original_line_count = len(block['lines'])
+                        if original_line_count <= 1:
+                            # Single line block - use translation as-is
+                            translated_lines = [translation.strip()]
+                        else:
+                            # Multi-line block - break translation into equal parts
+                            words = translation.strip().split()
+                            if not words:
+                                translated_lines = [''] * original_line_count
+                            else:
+                                # Calculate words per line
+                                total_words = len(words)
+                                words_per_line = max(1, total_words // original_line_count)
+                                extra_words = total_words % original_line_count
+
+                                translated_lines = []
+                                word_idx = 0
+
+                                for i in range(original_line_count):
+                                    # Some lines get an extra word to distribute evenly
+                                    line_word_count = words_per_line + (1 if i < extra_words else 0)
+                                    line_words = words[word_idx:word_idx + line_word_count]
+                                    line_text = ' '.join(line_words)
+                                    translated_lines.append(line_text)
+                                    word_idx += line_word_count
                     else:
                         translated_lines = block['lines']
 
@@ -253,9 +354,6 @@ class OCRWorker(QThread):
                 "--disable_confirmation"
             ]
 
-            print(f"Running OCR command: {' '.join(cmd)}")
-            print(f"Working directory: {self.volume_path.parent}")
-
             # Start the subprocess
             self.process = subprocess.Popen(
                 cmd,
@@ -276,7 +374,6 @@ class OCRWorker(QThread):
                 line = self.process.stdout.readline()
                 if line:
                     line = line.strip()
-                    print(f"OCR: {line}")
 
                     # Parse progress from output
                     if "Processing pages" in line and "|" in line:
@@ -308,13 +405,10 @@ class OCRWorker(QThread):
                 # Read any remaining output
                 remaining = self.process.stdout.read()
                 if remaining:
-                    print(f"OCR remaining output: {remaining}")
+                    pass
                 self.error.emit(f"OCR failed with return code {return_code}")
 
         except Exception as e:
-            print(f"OCR worker error: {e}")
-            import traceback
-            traceback.print_exc()
             self.error.emit(str(e))
 
     def cancel(self):
@@ -652,7 +746,6 @@ class MokuroGUI(QMainWindow):
                 self.target_lang = 'zh'
                 self.ocr_engine = 'trocr'
         except Exception as e:
-            print(f"Failed to load config: {e}")
             self.source_lang = 'ja'
             self.target_lang = 'zh'
             self.ocr_engine = 'trocr'
@@ -668,7 +761,7 @@ class MokuroGUI(QMainWindow):
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
-            print(f"Failed to save config: {e}")
+            pass
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -709,7 +802,7 @@ class MokuroGUI(QMainWindow):
         # OCR Engine selection
         toolbar_layout.addWidget(QLabel("OCR:"))
         self.ocr_engine_combo = QComboBox()
-        self.ocr_engine_combo.addItems(['manga-ocr', 'trocr'])
+        self.ocr_engine_combo.addItems(['manga-ocr', 'trocr', 'deepseek-ocr'])
         self.ocr_engine_combo.setCurrentText('trocr')  # Default to trocr as user prefers
         self.ocr_engine_combo.currentTextChanged.connect(self.on_ocr_engine_changed)
         toolbar_layout.addWidget(self.ocr_engine_combo)
@@ -723,7 +816,7 @@ class MokuroGUI(QMainWindow):
         toolbar_layout.addWidget(self.display_combo)
 
         # Translate buttons
-        self.translate_btn = QPushButton("Translate Page")
+        self.translate_btn = QPushButton("Translate Page (Long)")
         self.translate_btn.clicked.connect(self.translate_current_page)
         self.translate_btn.setEnabled(False)
         toolbar_layout.addWidget(self.translate_btn)
@@ -732,6 +825,11 @@ class MokuroGUI(QMainWindow):
         self.translate_all_btn.clicked.connect(self.translate_all_pages)
         self.translate_all_btn.setEnabled(False)
         toolbar_layout.addWidget(self.translate_all_btn)
+
+        self.retry_all_btn = QPushButton("Retry All")
+        self.retry_all_btn.clicked.connect(self.retry_all_translations)
+        self.retry_all_btn.setEnabled(False)
+        toolbar_layout.addWidget(self.retry_all_btn)
 
         main_layout.addLayout(toolbar_layout)
 
@@ -882,6 +980,7 @@ class MokuroGUI(QMainWindow):
         self.volume_label.setText(f"Volume: {self.current_volume_path.name}")
         self.update_navigation_buttons()
         self.translate_all_btn.setEnabled(True)
+        self.retry_all_btn.setEnabled(True)
         self.ocr_action.setEnabled(True)
         self.load_page(0)
 
@@ -924,7 +1023,6 @@ class MokuroGUI(QMainWindow):
                 ocr_data = load_json(ocr_json_path)
                 self.ocr_results[image_path] = ocr_data
             except Exception as e:
-                print(f"Failed to load OCR data from {ocr_json_path}: {e}")
                 self.status_bar.showMessage(f"Warning: Corrupted OCR data for {image_path.name}")
                 # Remove the corrupted file so it can be re-processed
                 try:
@@ -945,7 +1043,6 @@ class MokuroGUI(QMainWindow):
                 self.translated_results[image_path] = translated_data
                 self.status_bar.showMessage("Loaded cached translation")
             except Exception as e:
-                print(f"Failed to load cached translation from {translation_json_path}: {e}")
                 self.status_bar.showMessage(f"Warning: Corrupted translation data for {image_path.name}")
                 # Remove the corrupted file so it can be re-processed
                 try:
@@ -1055,7 +1152,7 @@ class MokuroGUI(QMainWindow):
             with open(translation_json_path, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"Failed to save translation results: {e}")
+            pass
 
         # Update existing text blocks with translated data
         for i, text_block in enumerate(self.text_blocks):
@@ -1124,7 +1221,7 @@ class MokuroGUI(QMainWindow):
             with open(translation_json_path, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"Failed to save translation results: {e}")
+            pass
 
         # Update display if this is the current page
         page_idx = self.image_paths.index(image_path)
@@ -1146,7 +1243,56 @@ class MokuroGUI(QMainWindow):
         self.translate_btn.setEnabled(True)
         self.translate_all_btn.setEnabled(True)
         self.translate_all_btn.setText("Translate All")
+        self.retry_all_btn.setEnabled(True)
+        self.retry_all_btn.setText("Retry All")
         self.status_bar.showMessage(f"Batch translation failed: {error_msg}")
+
+    def retry_all_translations(self):
+        """Retry translating all pages in the current volume, overriding previous results"""
+        if not self.image_paths:
+            return
+
+        # Check if batch translation is already running
+        if hasattr(self, 'batch_translation_worker') and self.batch_translation_worker and self.batch_translation_worker.isRunning():
+            self.status_bar.showMessage("Batch translation already running")
+            return
+
+        # Start batch translation with force retry
+        self.progress_bar.setVisible(True)
+        self.translate_btn.setEnabled(False)
+        self.translate_all_btn.setEnabled(False)
+        self.retry_all_btn.setEnabled(False)
+        self.retry_all_btn.setText("Retrying...")
+
+        self.batch_translation_worker = BatchTranslationWorker(
+            self.image_paths, self.ocr_results, self.source_lang, self.target_lang, self.current_volume_path, force_retry=True
+        )
+        self.batch_translation_worker.overall_progress.connect(self.on_batch_overall_progress)
+        self.batch_translation_worker.page_progress.connect(self.on_batch_page_progress)
+        self.batch_translation_worker.page_finished.connect(self.on_batch_page_finished)
+        self.batch_translation_worker.finished.connect(self.on_retry_batch_finished)
+        self.batch_translation_worker.error.connect(self.on_retry_batch_error)
+        self.batch_translation_worker.start()
+
+    def on_retry_batch_finished(self):
+        """Handle completion of retry batch translation"""
+        self.progress_bar.setVisible(False)
+        self.translate_btn.setEnabled(True)
+        self.translate_all_btn.setEnabled(True)
+        self.translate_all_btn.setText("Translate All")
+        self.retry_all_btn.setEnabled(True)
+        self.retry_all_btn.setText("Retry All")
+        self.status_bar.showMessage("Retry batch translation complete")
+
+    def on_retry_batch_error(self, error_msg: str):
+        """Handle retry batch translation errors"""
+        self.progress_bar.setVisible(False)
+        self.translate_btn.setEnabled(True)
+        self.translate_all_btn.setEnabled(True)
+        self.translate_all_btn.setText("Translate All")
+        self.retry_all_btn.setEnabled(True)
+        self.retry_all_btn.setText("Retry All")
+        self.status_bar.showMessage(f"Retry batch translation failed: {error_msg}")
 
     def on_source_lang_changed(self, lang: str):
         """Handle source language change"""

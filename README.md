@@ -10,7 +10,8 @@ A native Python desktop application that provides GPU-accelerated translation fo
 
 ### GUI Features
 
-- **GPU-Accelerated Translation**: Uses PyTorch and Transformers with CUDA support for fast translation
+- **GPU-Accelerated Translation**: Uses Ollama with DeepSeek-R1 8B model for fast, high-quality translation
+- **High-Quality Translation Model**: Leverages advanced LLM technology for superior translation quality
 - **Native Desktop Interface**: Built with PyQt5 for a responsive desktop experience
 - **Multi-Language Support**: Supports Japanese ↔ Chinese, Japanese ↔ English, Chinese ↔ English
 - **Interactive Manga Viewer**: Zoom, pan, and navigate through manga pages
@@ -76,6 +77,64 @@ pip install PyQt5 torch torchvision torchaudio --index-url https://download.pyto
 ```
 
 **Note:** GPU-enabled PyTorch is recommended for best translation performance. The GUI will automatically detect and use CUDA if available, falling back to CPU otherwise.
+
+## Ollama Setup for Translation
+
+The GUI uses Ollama for GPU-accelerated translation. To use translation features, you need to:
+
+### 1. Install Ollama
+
+Download and install Ollama from [https://ollama.ai](https://ollama.ai)
+
+### 2. Pull the Required Model
+
+The GUI is configured to use the `deepseek-r1:8b` model. Pull it using:
+
+```bash
+ollama pull deepseek-r1:8b
+```
+
+**Note:** The model size is 8B parameters, which provides good balance between speed and quality. If you prefer a different model, you can modify the model name in `mokuro_gui.py`.
+
+### 3. Start Ollama Server
+
+Make sure Ollama is running before using translation features:
+
+```bash
+# On Linux/Mac
+ollama serve
+
+# On Windows, Ollama usually starts automatically
+```
+
+### 4. Verify Installation
+
+Test that Ollama is working:
+
+```bash
+ollama list
+```
+
+You should see `deepseek-r1:8b` in the list of available models.
+
+### Troubleshooting
+
+- **Connection Issues**: Make sure Ollama is running on `http://localhost:11434`
+- **Model Not Found**: Ensure you've pulled the correct model (`deepseek-r1:8b`)
+- **Slow Performance**: The 8B model should be reasonably fast. If too slow, consider using a smaller model
+- **Out of Memory**: If you get memory errors, try using a smaller model like `llama2:7b`
+
+## Translation Quality
+
+The GUI uses Ollama with DeepSeek-R1 8B model for high-quality translations. Key features include:
+
+- **Advanced LLM Technology**: DeepSeek-R1 provides state-of-the-art translation capabilities
+- **Full Text Processing**: Entire text blocks are processed as complete units for better context understanding
+- **Line-by-line Formatting**: Translation results are properly formatted to match original manga text structure
+- **Persistent Caching**: Translation results are cached as JSON files for instant loading
+- **Context Preservation**: Maintains the visual layout and formatting of original manga text
+
+The DeepSeek-R1 model offers excellent translation quality with good performance balance. For specialized manga translation needs, consider fine-tuning or using domain-specific models.
 
 # Using
 Using way is the same as the Mokuro project

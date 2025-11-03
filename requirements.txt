@@ -18,3 +18,12 @@ yattag
 transformers
 datasets
 PyQt5
+addict
+matplotlib
+einops 
+easydict
+tokenizers
+psutil
+accelerate>=0.26.0
+hf_xet
+protobuf
